@@ -407,6 +407,7 @@ const invariants = {
       "transferSize",
       "encodedBodySize",
       "decodedBodySize",
+      "responseStatusCode",
     ]);
 
     assert_ordered_(entry, [
@@ -442,6 +443,7 @@ const invariants = {
       "transferSize",
       "encodedBodySize",
       "decodedBodySize",
+      "responseStatusCode",
     ]);
   }
 

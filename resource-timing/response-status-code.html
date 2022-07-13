@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8" />
+<title>This test validates the response status code of resources.</title>
+<link rel="help" href="https://www.w3.org/TR/resource-timing-2/#sec-performanceresourcetiming"/>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/entry-invariants.js"></script>
+<script src="resources/resource-loaders.js"></script>
+<script src="/common/get-host-info.sub.js"></script>
+</head>
+<body>
+<script>
+const {ORIGIN} = get_host_info();
+
+const run_test = (loader, status) => {
+  let path = `/resource-timing/resources/status-code.py?status=${status}`;
+  const url = new URL(path, ORIGIN);
+  attribute_test(
+    loader, url,
+    entry => {
+        assert_equals(entry.responseStatusCode, status,
+            `response status code for ${entry.name} should be ${status}`);
+    });
+}
+
+const resource_loaders = [
+  load.font,
+  load.image,
+  load.script,
+  load.stylesheet,
+  load.xhr_sync,
+  load.xhr_async,
+  load.iframe
+];
+
+const statuses = [
+  200, 203,
+  400, 401, 403, 404, 406, 408, 429,
+  500, 501, 502, 503, 504,
+];
+
+resource_loaders.forEach(loader => {
+  statuses.forEach(status => run_test(
+    loader, status
+  ));
+});
+
+</script>
+</body>
+</html>
