@@ -13,80 +13,130 @@
 
 <body>
 <style>
-  div {top:100px;}
-  [popup] {top:200px;}
+.unrelated {top:0;}
+.invoker {top:100px; width:fit-content; height:fit-content;}
+[popup] {top: 200px;}
+.offset-child {top:300px; left:300px;}
 </style>
 <script>
+const hoverPopUpDelay = 100; // The CSS delay setting.
+const hoverWaitTime = 200; // How long to wait to cover the delay for sure.
 let nextId = 0;
-async function makePopUpAndInvoker(test, popUpType) {
+async function makePopUpAndInvoker(test, popUpType, invokerType, delayMs) {
+  delayMs = delayMs || hoverPopUpDelay;
   const popUp = Object.assign(document.createElement('div'),{popUp: popUpType, id: `pop-up-${nextId++}`});
   document.body.appendChild(popUp);
   popUp.textContent = 'Pop-up';
-  const invoker = document.createElement('div');
-  document.body.appendChild(invoker);
-  invoker.textContent = 'Invoker';
+  let invoker = document.createElement('div');
+  invoker.setAttribute('class','invoker');
   invoker.setAttribute('hoverpopup',popUp.id);
-  test.add_cleanup(() => {popUp.remove();invoker.remove();});
+  invoker.setAttribute('style',`hover-pop-up-delay: ${delayMs}ms;`);
+  document.body.appendChild(invoker);
+  const originalInvoker = invoker;
+  const reassignPopupFn = (p) => originalInvoker.setAttribute('hoverpopup',p.id);
+  switch (invokerType) {
+    case 'plain':
+      // Invoker is just a div.
+      invoker.textContent = 'Invoker';
+      break;
+    case 'nested':
+      // Invoker is just a div containing a div.
+      const child1 = invoker.appendChild(document.createElement('div'));
+      child1.textContent = 'Invoker';
+      break;
+    case 'nested-offset':
+      // Invoker is a child of the element wearing the 'hoverpopup' attribute,
+      // and is not contained within the bounds of the hoverpopup element.
+      invoker.textContent = 'Invoker';
+      // Reassign invoker to the child:
+      invoker = invoker.appendChild(document.createElement('div'));
+      invoker.textContent = 'Invoker child';
+      invoker.setAttribute('class','offset-child');
+      break;
+    case 'none':
+      // No invoker.
+      invoker.remove();
+      break;
+    default:
+      assert_unreached(`Invalid invokerType ${invokerType}`);
+  }
+  const unrelated = document.createElement('div');
+  document.body.appendChild(unrelated);
+  unrelated.textContent = 'Unrelated';
+  unrelated.setAttribute('class','unrelated');
+  test.add_cleanup(() => {popUp.remove();invoker.remove();originalInvoker.remove();unrelated.remove();});
+  await mouseOver(unrelated); // Start by mousing over the unrelated element
   await waitForRender();
-  return {popUp,invoker};
+  return {popUp,invoker,reassignPopupFn};
 }
 function mouseOver(element) {
   return (new test_driver.Actions())
     .pointerMove(0, 0, {origin: element})
     .send();
 }
-const hoverTime = 200; // TODO(masonf): Once the hover time is CSS-customizable, lower this.
 async function waitForHoverTime() {
-  await new Promise(resolve => step_timeout(resolve,hoverTime));
+  await new Promise(resolve => step_timeout(resolve,hoverWaitTime));
   await waitForRender();
 };
 
 ["auto","hint","manual"].forEach(type => {
-  promise_test(async (t) => {
-    const {popUp,invoker} = await makePopUpAndInvoker(t,type);
-    assert_false(popUp.matches(':top-layer'));
-    await mouseOver(invoker);
-    assert_false(popUp.matches(':top-layer'));
-    await waitForHoverTime();
-    assert_true(popUp.matches(':top-layer'));
-    popUp.hidePopUp(); // Cleanup
-  },`hoverpopup attribute shows a pop-up with popup=${type}`);
+  ["plain","nested","nested-offset"].forEach(invokerType => {
+    promise_test(async (t) => {
+      const {popUp,invoker} = await makePopUpAndInvoker(t,type,invokerType);
+      assert_false(popUp.matches(':top-layer'));
+      await mouseOver(invoker);
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show immediately');
+      await waitForHoverTime();
+      assert_true(popUp.matches(':top-layer'),'pop-up should show after delay');
+      popUp.hidePopUp(); // Cleanup
+    },`hoverpopup attribute shows a pop-up with popup=${type}, invokerType=${invokerType}`);
 
-  promise_test(async (t) => {
-    const {popUp,invoker} = await makePopUpAndInvoker(t,type);
-    popUp.showPopUp();
-    assert_true(popUp.matches(':top-layer'));
-    await mouseOver(invoker);
-    assert_true(popUp.matches(':top-layer'));
-    await waitForHoverTime();
-    assert_true(popUp.matches(':top-layer'));
-    popUp.hidePopUp(); // Cleanup
-  },`hoverpopup attribute does nothing when pop-up is already showing (popup=${type})`);
+    promise_test(async (t) => {
+      const {popUp,invoker} = await makePopUpAndInvoker(t,type,invokerType,hoverWaitTime*2);
+      assert_false(popUp.matches(':top-layer'));
+      await mouseOver(invoker);
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show immediately');
+      await waitForHoverTime();
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show after not long enough of a delay');
+    },`hoverpopup hover-pop-up-delay is respected (popup=${type}, invokerType=${invokerType})`);
 
-  promise_test(async (t) => {
-    const {popUp,invoker} = await makePopUpAndInvoker(t,type);
-    await mouseOver(invoker);
-    assert_false(popUp.matches(':top-layer'));
-    popUp.remove();
-    await waitForHoverTime();
-    assert_false(popUp.matches(':top-layer'));
-    // Now put it back in the document and make sure it doesn't trigger.
-    document.body.appendChild(popUp);
-    await waitForHoverTime();
-    assert_false(popUp.matches(':top-layer'));
-  },`hoverpopup attribute does nothing when pop-up is moved out of the document (popup=${type})`);
+    promise_test(async (t) => {
+      const {popUp,invoker} = await makePopUpAndInvoker(t,type,invokerType);
+      popUp.showPopUp();
+      assert_true(popUp.matches(':top-layer'));
+      await mouseOver(invoker);
+      assert_true(popUp.matches(':top-layer'),'pop-up should stay showing on mouseover');
+      await waitForHoverTime();
+      assert_true(popUp.matches(':top-layer'),'pop-up should stay showing after delay');
+      popUp.hidePopUp(); // Cleanup
+    },`hoverpopup attribute does nothing when pop-up is already showing (popup=${type}, invokerType=${invokerType})`);
 
-  promise_test(async (t) => {
-    const {popUp,invoker} = await makePopUpAndInvoker(t,type);
-    const {popUp: popUp2, invoker: deleteMe} = await makePopUpAndInvoker(t,type);
-    deleteMe.remove();
-    await mouseOver(invoker);
-    assert_false(popUp.matches(':top-layer'));
-    assert_false(popUp2.matches(':top-layer'));
-    invoker.setAttribute('hoverpopup',popUp2.id); // Reassign
-    await waitForHoverTime();
-    assert_false(popUp.matches(':top-layer'));
-    assert_false(popUp2.matches(':top-layer'));
-  },`hoverpopup attribute does nothing when target changes (popup=${type})`);
+    promise_test(async (t) => {
+      const {popUp,invoker} = await makePopUpAndInvoker(t,type,invokerType);
+      await mouseOver(invoker);
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show immediately');
+      popUp.remove();
+      await waitForHoverTime();
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show even after a delay');
+      // Now put it back in the document and make sure it doesn't trigger.
+      document.body.appendChild(popUp);
+      await waitForHoverTime();
+      assert_false(popUp.matches(':top-layer'),'pop-up should not show even when returned to the document');
+    },`hoverpopup attribute does nothing when pop-up is moved out of the document (popup=${type}, invokerType=${invokerType})`);
+
+    promise_test(async (t) => {
+      const {popUp,invoker,reassignPopupFn} = await makePopUpAndInvoker(t,type,invokerType);
+      const popUp2 = Object.assign(document.createElement('div'),{popUp: type, id: 'foobar'});
+      document.body.appendChild(popUp2);
+      await mouseOver(invoker);
+      assert_false(popUp.matches(':top-layer'));
+      assert_false(popUp2.matches(':top-layer'));
+      reassignPopupFn(popUp2);
+      await waitForHoverTime();
+      assert_false(popUp.matches(':top-layer'),'pop-up #1 should not show since hoverpopup was reassigned');
+      assert_false(popUp2.matches(':top-layer'),'pop-up #2 should not show since hoverpopup was reassigned');
+      popUp2.remove();
+    },`hoverpopup attribute does nothing when target changes (popup=${type}, invokerType=${invokerType})`);
+  });
 });
 </script>
